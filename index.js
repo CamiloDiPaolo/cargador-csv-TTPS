@@ -5,9 +5,16 @@ const dotenv = require("dotenv");
 
 dotenv.config();
 
+// Data Warehouse
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_KEY
+);
+
+// aplicacion en la que se efectuan las vacunaciones por plataforma
+const supabaseApp = createClient(
+  process.env.SUPABASE_APP_URL,
+  process.env.SUPABASE_APP_KEY
 );
 
 const uploadRows = (table, rows) => {
@@ -22,15 +29,36 @@ const clearDataWarehouse = async () => {
   await supabase.from("d_vacunado").delete().neq("id", 0);
 };
 
-// [
-//   "anticovid_pfizer",
-//   "666",
-//   "CABA",
-//   "2021-09-25",
-//   "30000095",
-//   "1989-04-19",
-//   "F",
-// ];
+const getDepartamentos = async () => {
+  const { data: dataJurisdiccion, error } = await supabaseApp
+    .from("jurisdicciones")
+    .select("*");
+
+  const departamentos = await Promise.all(
+    dataJurisdiccion.map(async (jurisdiccion) => {
+      const { data: departamentos } = await supabaseApp
+        .from("departamentos")
+        .select("*")
+        .eq("jurisdiccion_id", jurisdiccion.id);
+      return {
+        jurisdiccion: jurisdiccion.nombre,
+        departamentos:
+          departamentos.length > 0
+            ? departamentos.map((depto) => depto.nombre)
+            : ["Departamento generado"],
+      };
+    })
+  );
+
+  return departamentos;
+
+  //   if (!departamentos) return "Departamento generado automaticamente";
+
+  //   // devolvemos un departamento random
+  //   const randomI = Math.floor(Math.random() * departamentos.length);
+
+  //   return departamentos[randomI].nombre;
+};
 
 const loadDataWarehouse = async () => {
   const records = [];
@@ -44,10 +72,18 @@ const loadDataWarehouse = async () => {
       console.log("|| Termine de cargar el CSV ");
 
       // adaptamos el formato a nuestra DB
+      const departamentos = await getDepartamentos();
+
       const arrDLugar = records.map((row) => {
+        const departamentosJurisdiccion = departamentos.find(
+          (depto) => depto.jurisdiccion == row[2]
+        ).departamentos;
         return {
           jurisdiccion: row[2],
-          departamento: 1, // AGregar un numero random
+          departamento:
+            departamentosJurisdiccion[
+              Math.floor(Math.random() * departamentosJurisdiccion.length)
+            ],
         };
       });
       const arrDTiempo = records.map((row) => {
@@ -98,8 +134,6 @@ const loadDataWarehouse = async () => {
           "d_vacunado",
           arrDVacunado.slice(i * 10000, i * 10000 + 10000)
         );
-
-        console.log(error);
 
         const arrHechos = dataTiempo.map((tiempo, i) => {
           return {
